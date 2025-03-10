@@ -1,18 +1,51 @@
+// Backend/Services/veridaService.js
 const axios = require('axios');
 const dotenv = require('dotenv');
 
 dotenv.config();
 
-// Ensure the correct Verida API endpoint is used
-const VERIDA_API_BASE_URL = "https://api.verida.ai";
-console.log(`Using Verida API endpoint: ${VERIDA_API_BASE_URL}`);
+// Primary Verida API endpoint is now .io
+const PRIMARY_VERIDA_API_URL = "https://api.verida.ai";
+// Fallback to legacy .ai domain for tokens that still reference it
+const LEGACY_VERIDA_API_URL = "https://api.verida.io";
 
-// The correct encoded schemas from the sandbox example
+console.log(`Using Verida API primary endpoint: ${PRIMARY_VERIDA_API_URL} with fallback`);
+
+// The correct encoded schemas
 const GROUP_SCHEMA_ENCODED = 'aHR0cHM6Ly9jb21tb24uc2NoZW1hcy52ZXJpZGEuaW8vc29jaWFsL2NoYXQvZ3JvdXAvdjAuMS4wL3NjaGVtYS5qc29u';
 const MESSAGE_SCHEMA_ENCODED = 'aHR0cHM6Ly9jb21tb24uc2NoZW1hcy52ZXJpZGEuaW8vc29jaWFsL2NoYXQvbWVzc2FnZS92MC4xLjAvc2NoZW1hLmpzb24%3D';
 
 // Keywords to check for "Engage Bonus"
 const ENGAGE_KEYWORDS = ['cluster', 'protocol', 'ai'];
+
+// Helper function to try a request with fallback to alternate domain
+async function tryVeridaRequest(endpoint, options) {
+  // Try with primary domain first
+  try {
+    const primaryResponse = await axios({
+      ...options,
+      url: `${PRIMARY_VERIDA_API_URL}${endpoint}`
+    });
+    console.log(`Request succeeded with primary .io domain`);
+    return primaryResponse;
+  } catch (primaryError) {
+    console.log(`Request failed with primary domain: ${primaryError.message}`);
+    
+    // Try with legacy domain as fallback
+    try {
+      console.log(`Trying fallback to legacy .ai domain...`);
+      const legacyResponse = await axios({
+        ...options,
+        url: `${LEGACY_VERIDA_API_URL}${endpoint}`
+      });
+      console.log(`Request succeeded with legacy .ai domain`);
+      return legacyResponse;
+    } catch (legacyError) {
+      console.error(`Request also failed with legacy domain: ${legacyError.message}`);
+      throw legacyError; // Rethrow the last error
+    }
+  }
+}
 
 // Helper function to check for keywords in text content
 function checkForKeywords(text, keywordMatches) {
@@ -58,63 +91,78 @@ const veridaService = {
 
       console.log('Fetching user DID with auth token:', authToken.substring(0, 10) + '...');
       
+      // Parse token if it's a JSON structure
       let tokenObj = authToken;
       if (typeof authToken === 'string') {
         if (authToken.startsWith('{')) {
           try {
             tokenObj = JSON.parse(authToken);
             console.log('Successfully parsed token as JSON object');
+            
+            // Check if token contains server URLs and log them
+            if (tokenObj.token && tokenObj.token.servers) {
+              console.log('Token contains server URLs:', tokenObj.token.servers);
+            }
           } catch (e) {
             console.log('Token is not in JSON format');
           }
         }
       }
       
+      // Extract DID from token object if present
       if (tokenObj.token && tokenObj.token.did) {
         console.log('Extracted DID from token object:', tokenObj.token.did);
         return tokenObj.token.did;
       }
 
-      if (process.env.DEFAULT_DID && process.env.DEFAULT_DID !== 'unknown') {
-        console.log('Using DEFAULT_DID from environment:', process.env.DEFAULT_DID);
-        return process.env.DEFAULT_DID;
+      // Format auth header correctly
+      const authHeader = authToken.startsWith('Bearer ') ? authToken : `Bearer ${authToken}`;
+      
+      // Try to get user profile info
+      try {
+        console.log('Attempting to fetch profile from Verida API with token');
+        const profileResponse = await tryVeridaRequest('/api/profile', {
+          method: 'GET',
+          headers: {
+            'Authorization': authHeader,
+            'Content-Type': 'application/json'
+          },
+          timeout: 10000
+        });
+        
+        if (profileResponse.data?.did) {
+          console.log('Retrieved DID from profile:', profileResponse.data.did);
+          return profileResponse.data.did;
+        }
+      } catch (profileError) {
+        console.warn('Profile lookup failed:', profileError.message);
+      }
+
+      // Try to get user info through alternative endpoint
+      try {
+        console.log('Attempting to fetch user info from Verida API');
+        const userInfoResponse = await tryVeridaRequest('/api/user/info', {
+          method: 'GET',
+          headers: {
+            'Authorization': authHeader,
+            'Content-Type': 'application/json'
+          },
+          timeout: 10000
+        });
+        
+        if (userInfoResponse.data?.did) {
+          console.log('Retrieved DID from user info:', userInfoResponse.data.did);
+          return userInfoResponse.data.did;
+        }
+      } catch (userInfoError) {
+        console.warn('User info lookup failed:', userInfoError.message);
       }
       
+      // Try a test query to see if we can extract information
       try {
-        const authHeader = authToken.startsWith('Bearer ') ? authToken : `Bearer ${authToken}`;
-        
-        try {
-          console.log('Attempting to fetch profile from Verida API with token');
-          const profileResponse = await axios({
-            method: 'GET',
-            url: `${VERIDA_API_BASE_URL}/api/profile`,
-            headers: {
-              'Authorization': authHeader,
-              'Content-Type': 'application/json'
-            },
-            timeout: 10000
-          });
-          
-          console.log('Profile API response:', profileResponse.status, 
-                      profileResponse.data ? 'with data' : 'no data');
-          
-          if (profileResponse.data?.did) {
-            console.log('Retrieved DID from profile:', profileResponse.data.did);
-            return profileResponse.data.did;
-          } else {
-            console.log('Profile response did not contain DID:', JSON.stringify(profileResponse.data).substring(0, 200));
-          }
-        } catch (profileError) {
-          console.warn('Profile lookup failed:', profileError.message);
-          if (profileError.response) {
-            console.log('Error response:', profileError.response.status, profileError.response.statusText);
-          }
-        }
-        
         console.log('Attempting test query to Verida API');
-        const testResponse = await axios({
+        const testResponse = await tryVeridaRequest(`/api/rest/v1/ds/query/${GROUP_SCHEMA_ENCODED}`, {
           method: 'POST',
-          url: `${VERIDA_API_BASE_URL}/api/rest/v1/ds/query/${GROUP_SCHEMA_ENCODED}`,
           data: {
             options: {
               sort: [{ _id: "desc" }],
@@ -137,14 +185,14 @@ const veridaService = {
             return didMatch[0];
           }
         }
-        
-        console.log('Successfully retrieved DID:', process.env.DEFAULT_DID || 'unknown');
-        return process.env.DEFAULT_DID || 'unknown';
       } catch (apiError) {
         console.warn(`API test failed:`, apiError.message);
-        if (apiError.response) {
-          console.log('Error response:', apiError.response.status, apiError.response.statusText);
-        }
+      }
+      
+      // As a last resort, use the default DID from .env
+      if (process.env.DEFAULT_DID && process.env.DEFAULT_DID !== 'unknown') {
+        console.log('Using DEFAULT_DID from environment:', process.env.DEFAULT_DID);
+        return process.env.DEFAULT_DID;
       }
       
       console.log('Could not determine DID, using "unknown"');
@@ -178,16 +226,11 @@ const veridaService = {
         keywordMatches.keywords[keyword] = 0;
       });
       
+      // First try count API
       try {
-        const groupsResponse = await axios({
+        const groupsCountResponse = await tryVeridaRequest(`/api/rest/v1/ds/count/${GROUP_SCHEMA_ENCODED}`, {
           method: 'POST',
-          url: `${VERIDA_API_BASE_URL}/api/rest/v1/ds/query/${GROUP_SCHEMA_ENCODED}`,
-          data: {
-            options: {
-              sort: [{ _id: "desc" }],
-              limit: 100
-            }
-          },
+          data: {},
           headers: {
             'Content-Type': 'application/json',
             'Authorization': authHeader
@@ -195,15 +238,9 @@ const veridaService = {
           timeout: 10000
         });
         
-        const messagesResponse = await axios({
+        const messagesCountResponse = await tryVeridaRequest(`/api/rest/v1/ds/count/${MESSAGE_SCHEMA_ENCODED}`, {
           method: 'POST',
-          url: `${VERIDA_API_BASE_URL}/api/rest/v1/ds/query/${MESSAGE_SCHEMA_ENCODED}`,
-          data: {
-            options: {
-              sort: [{ _id: "desc" }],
-              limit: 100
-            }
-          },
+          data: {},
           headers: {
             'Content-Type': 'application/json',
             'Authorization': authHeader
@@ -211,39 +248,23 @@ const veridaService = {
           timeout: 10000
         });
         
-        console.log('Groups response:', 
-          groupsResponse.data?.results ? 
-            `Found ${groupsResponse.data.results.length} groups` :
-            'No groups found'
-        );
+        groups = groupsCountResponse.data?.count || 0;
+        messages = messagesCountResponse.data?.count || 0;
         
-        console.log('Messages response:', 
-          messagesResponse.data?.results ? 
-            `Found ${messagesResponse.data.results.length} messages` :
-            'No messages found'
-        );
+        console.log(`Count API results: ${groups} groups, ${messages} messages`);
+      } catch (countError) {
+        console.log('Count API failed, trying query API');
         
-        groups = groupsResponse.data?.results?.length || 0;
-        messageItems = messagesResponse.data?.results || [];
-        messages = messageItems.length;
-        
-        messageItems.forEach(message => {
-          if (message.content) {
-            checkForKeywords(message.content, keywordMatches);
-          }
-          if (message.subject) {
-            checkForKeywords(message.subject, keywordMatches);
-          }
-        });
-        
-        console.log(`Keyword matches:`, keywordMatches);
-      } catch (queryError) {
-        console.error('Error querying Verida:', queryError.message);
-        
+        // Try query API
         try {
-          const searchResponse = await axios({
-            method: 'GET',
-            url: `${VERIDA_API_BASE_URL}/api/rest/v1/search/universal?keywords=telegram`,
+          const groupsResponse = await tryVeridaRequest(`/api/rest/v1/ds/query/${GROUP_SCHEMA_ENCODED}`, {
+            method: 'POST',
+            data: {
+              options: {
+                sort: [{ _id: "desc" }],
+                limit: 100
+              }
+            },
             headers: {
               'Content-Type': 'application/json',
               'Authorization': authHeader
@@ -251,30 +272,86 @@ const veridaService = {
             timeout: 10000
           });
           
-          if (searchResponse.data && searchResponse.data.items) {
-            const telegramItems = searchResponse.data.items.filter(item => 
-              item.schema?.includes('chat/group') || 
-              item.schema?.includes('chat/message') || 
-              item.name?.toLowerCase().includes('telegram')
-            );
-            
-            console.log(`Found ${telegramItems.length} Telegram-related items in search results`);
-            
-            groups = telegramItems.filter(item => item.schema?.includes('chat/group')).length;
-            messageItems = telegramItems.filter(item => item.schema?.includes('chat/message'));
-            messages = messageItems.length;
-            
-            messageItems.forEach(message => {
-              if (message.content) {
-                checkForKeywords(message.content, keywordMatches);
+          const messagesResponse = await tryVeridaRequest(`/api/rest/v1/ds/query/${MESSAGE_SCHEMA_ENCODED}`, {
+            method: 'POST',
+            data: {
+              options: {
+                sort: [{ _id: "desc" }],
+                limit: 100
               }
-              if (message.subject || message.name) {
-                checkForKeywords(message.subject || message.name, keywordMatches);
-              }
+            },
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': authHeader
+            },
+            timeout: 10000
+          });
+          
+          console.log('Groups response:', 
+            groupsResponse.data?.results ? 
+              `Found ${groupsResponse.data.results.length} groups` :
+              'No groups found'
+          );
+          
+          console.log('Messages response:', 
+            messagesResponse.data?.results ? 
+              `Found ${messagesResponse.data.results.length} messages` :
+              'No messages found'
+          );
+          
+          groups = groupsResponse.data?.results?.length || 0;
+          messageItems = messagesResponse.data?.results || [];
+          messages = messageItems.length;
+          
+          messageItems.forEach(message => {
+            if (message.content) {
+              checkForKeywords(message.content, keywordMatches);
+            }
+            if (message.subject) {
+              checkForKeywords(message.subject, keywordMatches);
+            }
+          });
+          
+          console.log(`Keyword matches:`, keywordMatches);
+        } catch (queryError) {
+          console.error('Error querying Verida:', queryError.message);
+          
+          // Final attempt with search API
+          try {
+            const searchResponse = await tryVeridaRequest('/api/rest/v1/search/universal?keywords=telegram', {
+              method: 'GET',
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': authHeader
+              },
+              timeout: 10000
             });
+            
+            if (searchResponse.data && searchResponse.data.items) {
+              const telegramItems = searchResponse.data.items.filter(item => 
+                item.schema?.includes('chat/group') || 
+                item.schema?.includes('chat/message') || 
+                item.name?.toLowerCase().includes('telegram')
+              );
+              
+              console.log(`Found ${telegramItems.length} Telegram-related items in search results`);
+              
+              groups = telegramItems.filter(item => item.schema?.includes('chat/group')).length;
+              messageItems = telegramItems.filter(item => item.schema?.includes('chat/message'));
+              messages = messageItems.length;
+              
+              messageItems.forEach(message => {
+                if (message.content) {
+                  checkForKeywords(message.content, keywordMatches);
+                }
+                if (message.subject || message.name) {
+                  checkForKeywords(message.subject || message.name, keywordMatches);
+                }
+              });
+            }
+          } catch (searchError) {
+            console.error('Search also failed:', searchError.message);
           }
-        } catch (searchError) {
-          console.error('Search also failed:', searchError.message);
         }
       }
       

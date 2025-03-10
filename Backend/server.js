@@ -1,6 +1,6 @@
-const express = require("express");
-const dotenv = require("dotenv");
-const cors = require("cors");
+const express = require('express');
+const dotenv = require('dotenv');
+const cors = require('cors');
 const Moralis = require("moralis").default;
 const scoreRoutes = require('./routes/scoreRoutes.js')
 const blockchainRoutes = require("./routes/blockchainRoutes");
@@ -50,7 +50,7 @@ app.get('/auth/callback', async (req, res) => {
           
         console.log('Parsed token data:', tokenData);
         
-        // Extract DID and auth token from the token structure
+        // Extract DID & Auth Token
         if (tokenData.token) {
           did = tokenData.token.did;
           authToken = tokenData.token._id || tokenData.token;
@@ -83,7 +83,7 @@ app.get('/auth/callback', async (req, res) => {
       
       console.log('No token found, redirecting to Verida token generator with return URL:', returnUrl);
       
-      const tokenGeneratorUrl = `https://app.verida.ai/auth?scopes=api%3Ads-query&scopes=api%3Asearch-universal&scopes=ds%3Asocial-email&scopes=api%3Asearch-ds&scopes=api%3Asearch-chat-threads&scopes=ds%3Ar%3Asocial-chat-group&scopes=ds%3Ar%3Asocial-chat-message&redirectUrl=${encodeURIComponent(returnUrl)}&appDID=did%3Avda%3Amainnet%3A0x87AE6A302aBf187298FC1Fa02A48cFD9EAd2818D`;
+      const tokenGeneratorUrl = `https://app.verida.ai/auth?scopes=api%3Ads-query&scopes=api%3Asearch-universal&scopes=ds%3Asocial-email&scopes=api%3Asearch-chat-threads&scopes=api%3Asearch-ds&scopes=ds%3Ar%3Asocial-chat-group&scopes=ds%3Ar%3Asocial-chat-message&redirectUrl=${encodedURIComponent(returnUrl)}&appDID=did%3Avda%3Amainnet%3A0xd9EEeE7aEbF2e035cb442223f8401C4E04a1Ed5B`;
       
       return res.redirect(tokenGeneratorUrl);
     }
