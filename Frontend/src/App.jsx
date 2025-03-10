@@ -22,7 +22,7 @@ function VeridaRedirectHandler() {
     
     console.log('Verida redirect parameters:', {
       did: did || 'not provided',
-      authToken: authToken ? `${authToken.substring(0, 10)}...` : 'not provided',
+      authToken: authToken ? `${authToken.substring(0, 20)}...` : 'not provided',
       error: error || 'none'
     });
     
@@ -34,18 +34,40 @@ function VeridaRedirectHandler() {
     
     // Check if we have an auth token (DID might be "unknown" initially)
     if (authToken) {
-      // Store Verida credentials in sessionStorage - even if DID is "unknown"
-      // The backend will try to resolve the actual DID using the auth token
-      sessionStorage.setItem('veridaUser', JSON.stringify({ 
-        did: did || 'unknown', 
-        authToken,
-        timestamp: Date.now() 
-      }));
-      
-      // Redirect to dashboard with verida placeholder parameters
-      // These will be used to identify this is a Verida user
-      // Use "verida-user" as privyId for Verida users
-      navigate('/dashboard/verida-user/verida-user/verida-wallet');
+      try {
+        // Try to parse the authToken if it's in JSON format
+        let tokenData = null;
+        let tokenObj = null;
+        
+        if (typeof authToken === 'string' && 
+            (authToken.startsWith('{') || authToken.includes('"token"'))) {
+          try {
+            tokenObj = JSON.parse(authToken);
+            if (tokenObj.token) {
+              tokenData = tokenObj.token;
+            }
+          } catch (e) {
+            console.error("Failed to parse auth token as JSON:", e);
+          }
+        }
+        
+        // Store Verida credentials in sessionStorage - even if DID is "unknown"
+        // The backend will try to resolve the actual DID using the auth token
+        sessionStorage.setItem('veridaUser', JSON.stringify({ 
+          did: did || 'unknown', 
+          authToken: tokenData?._id || authToken,
+          tokenData: tokenData,
+          timestamp: Date.now() 
+        }));
+        
+        // Redirect to dashboard with verida placeholder parameters
+        // These will be used to identify this is a Verida user
+        // Use "verida-user" as privyId for Verida users
+        navigate('/dashboard/verida-user/verida-user/verida-wallet');
+      } catch (err) {
+        console.error("Error handling Verida redirect:", err);
+        navigate('/');
+      }
     } else {
       console.error("Missing auth token in Verida redirect");
       // If missing auth token, go back to login

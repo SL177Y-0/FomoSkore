@@ -14,7 +14,7 @@ function VLogin({ setUser }) {
     const errorParam = searchParams.get("error");
     const errorMessage = searchParams.get("message");
   
-    console.log("AuthToken from URL:", authToken); // 🔍 Debugging
+    console.log("AuthToken from URL:", authToken ? `${authToken.substring(0, 20)}...` : 'None'); // 🔍 Debugging
   
     if (errorParam) {
       console.error("Authentication error:", errorParam, errorMessage);
@@ -27,8 +27,8 @@ function VLogin({ setUser }) {
         const tokenData = JSON.parse(tokenParam);
         console.log("Authentication successful from token data:", tokenData);
         setUser({
-          did: tokenData.token.did,
-          authToken: tokenData.token._id,
+          did: tokenData.token?.did || 'unknown',
+          authToken: tokenData.token?._id || tokenData,
           tokenData: tokenData.token,
         });
         return;
@@ -38,8 +38,38 @@ function VLogin({ setUser }) {
     }
   
     if (did && authToken) {
-      console.log("Authentication successful from URL params:", { did, authToken });
-      setUser({ did, authToken });
+      try {
+        // Try to parse the token if it's a JSON string
+        let parsedToken = authToken;
+        let tokenData = null;
+        
+        if (typeof authToken === 'string' && 
+           (authToken.startsWith('{') || authToken.includes('"token"'))) {
+          try {
+            tokenData = JSON.parse(authToken);
+            parsedToken = tokenData.token?._id || authToken;
+            console.log("Parsed token data:", tokenData);
+          } catch (parseErr) {
+            console.error("Error parsing authToken:", parseErr);
+          }
+        }
+        
+        console.log("Authentication successful from URL params:", { 
+          did, 
+          authToken: parsedToken.substring(0, 10) + '...',
+          hasTokenData: !!tokenData
+        });
+        
+        setUser({ 
+          did, 
+          authToken: parsedToken,
+          tokenData: tokenData?.token
+        });
+      } catch (err) {
+        console.error("Error setting user data:", err);
+        // Fallback to the raw values
+        setUser({ did, authToken });
+      }
     }
   }, [setUser]);
   

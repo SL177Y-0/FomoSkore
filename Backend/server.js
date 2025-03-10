@@ -2,11 +2,11 @@ const express = require('express');
 const dotenv = require('dotenv');
 const cors = require('cors');
 const Moralis = require("moralis").default;
-const scoreRoutes = require('./routes/scoreRoutes.js')
+const scoreRoutes = require('./routes/scoreRoutes.js');
 const blockchainRoutes = require("./routes/blockchainRoutes");
 const twitterRoutes = require("./routes/twitterRoutes");
-const VeridaApiRoutes= require("./routes/VeridaApiRoute.js");
-const VeridaAuthRoutes= require('./routes/VeridaAuthRoute.js')
+const VeridaApiRoutes = require("./routes/VeridaApiRoute.js");
+const VeridaAuthRoutes = require('./routes/VeridaAuthRoute.js');
 const fomoScoreRoutes = require('./routes/fomoScoreRoutes');
 const veridaService = require('./Services/veridaService');
 const { connectDB } = require('./db');
@@ -17,6 +17,14 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
+// Helper function to clean DID (remove context parameter)
+function cleanDID(did) {
+  if (typeof did === 'string') {
+    return did.split('?')[0];
+  }
+  return did;
+}
+
 // API Routes
 app.use("/api/twitter", twitterRoutes);
 
@@ -24,7 +32,7 @@ app.use("/api/twitter", twitterRoutes);
 app.use("/api", blockchainRoutes);
 
 app.use('/VeridaApi', VeridaApiRoutes);
-app.use('/VeridaAuth',VeridaAuthRoutes)
+app.use('/VeridaAuth', VeridaAuthRoutes);
 
 // FOMOscore routes
 app.use('/api/fomoscore', fomoScoreRoutes);
@@ -38,57 +46,30 @@ app.get('/auth/callback', async (req, res) => {
     // Initialize variables
     let tokenData = null;
     let did = null;
-    let authToken = null;
+    let authToken = req.query.auth_token || req.query.token;
     
-    // Check if we have a token parameter
-    if (req.query.token) {
+    // Parse token if it exists
+    if (authToken) {
       try {
-        // Try parsing the token as JSON
-        tokenData = typeof req.query.token === 'string' 
-          ? JSON.parse(req.query.token) 
-          : req.query.token;
+        // Check if it's already a JSON string
+        if (typeof authToken === 'string' && (authToken.startsWith('{') || authToken.includes('"token"'))) {
+          tokenData = JSON.parse(authToken);
+          console.log('Parsed token JSON data');
           
-        console.log('Parsed token data:', tokenData);
-        
-        // Extract DID & Auth Token
-        if (tokenData.token) {
-          did = tokenData.token.did;
-          authToken = tokenData.token._id || tokenData.token;
-          console.log('Extracted from token object - DID:', did, 'Auth Token:', authToken);
-        } else if (tokenData.did && tokenData._id) {
-          // Alternative format
-          did = tokenData.did;
-          authToken = tokenData._id;
-          console.log('Extracted from alternative format - DID:', did, 'Auth Token:', authToken);
+          // Extract DID from token structure
+          if (tokenData.token && tokenData.token.did) {
+            did = tokenData.token.did;
+            authToken = tokenData.token._id;
+            console.log('Extracted DID from token:', did);
+            console.log('Extracted auth token ID from token:', authToken);
+          }
         }
       } catch (error) {
-        console.error('Error parsing token data:', error.message);
-        // The token might be the actual auth token
-        authToken = req.query.token;
-        console.log('Using token directly as auth token:', authToken);
+        console.log('Token is not in JSON format, using as-is');
       }
     }
     
-    // If we don't have an auth token yet, look for auth_token parameter
-    if (!authToken) {
-      authToken = req.query.auth_token || req.body.auth_token;
-      console.log('Using auth_token from parameters:', authToken);
-    }
-    
-    // If we still don't have an auth token, redirect to Verida's authentication
-    if (!authToken) {
-      // If no token, redirect to Verida's token generator with our frontend as the callback
-      const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
-      const returnUrl = `${frontendUrl}?source=verida_callback`;
-      
-      console.log('No token found, redirecting to Verida token generator with return URL:', returnUrl);
-      
-      const tokenGeneratorUrl = `https://app.verida.ai/auth?scopes=api%3Ads-query&scopes=api%3Asearch-universal&scopes=ds%3Asocial-email&scopes=api%3Asearch-chat-threads&scopes=api%3Asearch-ds&scopes=ds%3Ar%3Asocial-chat-group&scopes=ds%3Ar%3Asocial-chat-message&redirectUrl=${encodedURIComponent(returnUrl)}&appDID=did%3Avda%3Amainnet%3A0xd9EEeE7aEbF2e035cb442223f8401C4E04a1Ed5B`;
-      
-      return res.redirect(tokenGeneratorUrl);
-    }
-    
-    // If we have an auth token but no DID, try to fetch it
+    // If we have a token but no DID yet, try to get it from Verida service
     if (authToken && !did) {
       try {
         console.log('Attempting to fetch DID using auth token');
@@ -102,11 +83,23 @@ app.get('/auth/callback', async (req, res) => {
       }
     }
     
+    // Clean the DID to remove context parameters
+    did = cleanDID(did);
+    
     console.log('Final values - DID:', did, 'Auth Token:', authToken ? `${authToken.substring(0, 10)}...` : 'none');
+    
+    // Create a proper token object structure for the frontend
+    const tokenObject = JSON.stringify({
+      token: {
+        did: did || 'unknown',
+        _id: authToken,
+        servers: ["https://api.verida.ai"]
+      }
+    });
     
     // Redirect to frontend with the token information
     const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
-    const redirectUrl = `${frontendUrl}/dashboard?did=${encodeURIComponent(did || 'unknown')}&authToken=${encodeURIComponent(authToken)}`;
+    const redirectUrl = `${frontendUrl}/dashboard?did=${encodeURIComponent(did || 'unknown')}&authToken=${encodeURIComponent(tokenObject)}`;
     
     console.log('Redirecting to frontend with token data:', redirectUrl);
     res.redirect(redirectUrl);
