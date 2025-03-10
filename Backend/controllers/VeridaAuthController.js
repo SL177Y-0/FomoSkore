@@ -47,7 +47,7 @@ const authCallback = async (req, res) => {
       console.log("No token found, redirecting to Verida token generator...");
 
       // Construct Verida token generator URL
-      const tokenGeneratorUrl = `https://app.verida.ai/auth?scopes=api%3Ads-query&scopes=api%3Asearch-universal&scopes=ds%3Asocial-email&scopes=api%3Asearch-ds&scopes=api%3Asearch-chat-threads&scopes=ds%3Ar%3Asocial-chat-group&scopes=ds%3Ar%3Asocial-chat-message&redirectUrl=${encodeURIComponent(returnUrl)}&appDID=did%3Avda%3Amainnet%3A0x87AE6A302aBf187298FC1Fa02A48cFD9EAd2818D`;
+      const tokenGeneratorUrl = `https://app.verida.ai/auth?scopes=api%3Ads-query&scopes=api%3Asearch-universal&scopes=ds%3Asocial-email&scopes=api%3Asearch-ds&scopes=api%3Asearch-chat-threads&redirectUrl=${encodeURIComponent(returnUrl)}&appDID=did%3Avda%3Amainnet%3A0xd9EEeE7aEbF2e035cb442223f8401C4E04a1Ed5B`;
 
       return res.redirect(tokenGeneratorUrl);
     }
@@ -62,7 +62,7 @@ const authCallback = async (req, res) => {
     console.log("Final AuthToken:", authToken);
 
     // Redirect to frontend with DID & authToken
-    const frontendUrl = process.env.FRONTEND_URL || "http://localhost:5173";
+    const frontendUrl = process.env.FRONTEND_URL || "http://localhost:3002";
     const redirectUrl = `${frontendUrl}/dashboard?did=${encodeURIComponent(did)}&authToken=${encodeURIComponent(authToken)}`;
 
     console.log("Redirecting to frontend with token data:", redirectUrl);
