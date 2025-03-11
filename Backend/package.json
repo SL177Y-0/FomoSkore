@@ -13,6 +13,7 @@
   "dependencies": {
     "@moralisweb3/common-evm-utils": "^2.27.2",
     "axios": "^1.8.2",
+    "backend": "file:",
     "badge-maker": "^4.1.0",
     "body-parser": "^1.20.3",
     "cookie-parser": "^1.4.7",
@@ -20,7 +21,7 @@
     "dotenv": "^16.4.7",
     "express": "^4.21.2",
     "jsonwebtoken": "^9.0.2",
-    "mongoose": "^8.0.3",
+    "mongoose": "^8.10.1",
     "moralis": "^2.27.2",
     "node-cache": "^5.1.2",
     "nodemon": "^3.1.9",

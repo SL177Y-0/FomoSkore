@@ -7,29 +7,16 @@ import { BrowserRouter } from "react-router-dom";
 import { PrivyProvider } from "@privy-io/react-auth";
 import "./index.css";
 
-// Get Privy App ID from environment variables
-const privyAppId = import.meta.env.VITE_PRIVY_APP_ID || "cm7d61lvy03c9gg4dqksb3rl7";
+// Use the App ID from environment variables
+const privyAppId = import.meta.env.VITE_PRIVY_APP_ID;
 
 ReactDOM.createRoot(document.getElementById("root")).render(
   <React.StrictMode>
-    <PrivyProvider 
-      appId={privyAppId}
-      config={{
-        loginMethods: ['email', 'wallet', 'google', 'twitter'],
-        appearance: {
-          theme: 'dark',
-          accentColor: '#3182ce',
-          logo: 'https://your-logo-url.com/logo.png' // Replace with your logo URL
-        },
-        embeddedWallets: {
-          createOnLogin: 'users-without-wallets'
-        }
-      }}
-    >
+    <PrivyProvider appId={privyAppId}>
       <BrowserRouter>
-        <Provider store={store}>
-          <App />
-        </Provider>
+      <Provider store={store}>
+      <App />
+    </Provider>
       </BrowserRouter>
     </PrivyProvider>
   </React.StrictMode>

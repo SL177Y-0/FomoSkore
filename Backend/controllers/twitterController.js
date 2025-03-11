@@ -22,7 +22,7 @@ exports.getUserDetails = async (username, retries = 3) => {
                 'x-rapidapi-key': '961385e952mshf11629094dfe0ecp1877e4jsnf753904efff2',
                 'x-rapidapi-host': 'twitter241.p.rapidapi.com'
             },
-            params: { username } // Use params instead of body
+            params: { username } // ✅ Use params instead of body
         };
 
         for (let attempt = 1; attempt <= retries; attempt++) {
@@ -34,7 +34,7 @@ exports.getUserDetails = async (username, retries = 3) => {
                     throw new Error(`User not found: ${username}`);
                 }
     
-                return response.data.result; // Return user data
+                return response.data.result; // ✅ Return user data
             } catch (error) {
                 if (error.response && error.response.status === 429) {
                     console.warn(`⏳ Rate limit hit. Retrying in 5 seconds... (Attempt ${attempt}/${retries})`);

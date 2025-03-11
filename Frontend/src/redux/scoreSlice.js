@@ -14,8 +14,8 @@ const scoreSlice = createSlice({
       state.title = action.payload.title;
     },
     resetScore: (state) => {
-      state.totalScore = 0; // Reset total score to zero
-      state.title = "";      // Clear the title
+      state.totalScore = 0; // ✅ Reset total score to zero
+      state.title = "";      // ✅ Clear the title
     },
   },
 });
