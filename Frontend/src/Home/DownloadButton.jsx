@@ -1,7 +1,7 @@
 import { useState } from "react";
 import PropTypes from "prop-types";
 
-const DownloadButton = ({ score }) => {
+const DownloadButton = ({ score, badges = [], componentScores = {} }) => {
   const [downloadFormat, setDownloadFormat] = useState("pdf");
   const [loading, setLoading] = useState(false);
   const [downloadSuccess, setDownloadSuccess] = useState(false);
@@ -9,10 +9,10 @@ const DownloadButton = ({ score }) => {
 
   // Get appropriate badge title based on score
   const getBadgeTitle = (score) => {
-    if (score < 30) return "Beginner";
-    if (score < 60) return "Intermediate";
-    if (score < 90) return "Advanced";
-    return "Expert";
+    if (score < 3) return "BEGINNER";
+    if (score < 6) return "INTERMEDIATE";
+    if (score < 8) return "ADVANCED";
+    return "EXPERT";
   };
 
   // Function to generate PDF using Canvas
@@ -27,7 +27,7 @@ const DownloadButton = ({ score }) => {
       const canvas = document.createElement("canvas");
       const ctx = canvas.getContext("2d");
       canvas.width = 800;
-      canvas.height = 600;
+      canvas.height = 800;
       
       // Set background
       ctx.fillStyle = "#1e1e2e";
@@ -39,14 +39,65 @@ const DownloadButton = ({ score }) => {
       ctx.fillText("FomoScore Certificate", 200, 100);
       
       // Add score
-      ctx.fillStyle = "#white";
+      ctx.fillStyle = "#ffffff";
       ctx.font = "bold 80px Arial";
-      ctx.fillText(score.toString(), 370, 250);
+      ctx.fillText(score.toFixed(1).toString(), 350, 220);
+      
+      // Add score scale
+      ctx.fillStyle = "#94e2d5";
+      ctx.font = "bold 24px Arial";
+      ctx.fillText("/10", 470, 220);
       
       // Add badge title
       ctx.fillStyle = "#94e2d5";
       ctx.font = "italic 32px Arial";
-      ctx.fillText(getBadgeTitle(score), 340, 320);
+      ctx.fillText(getBadgeTitle(score), 340, 280);
+      
+      // Add component scores
+      ctx.fillStyle = "#cdd6f4";
+      ctx.font = "bold 24px Arial";
+      ctx.fillText("Component Scores:", 280, 340);
+      
+      let yPos = 380;
+      
+      // Add Twitter, Wallet, and Verida scores
+      if (componentScores.twitterScore !== undefined) {
+        ctx.fillStyle = "#1da1f2";
+        ctx.font = "20px Arial";
+        ctx.fillText(`Twitter: ${componentScores.twitterScore.toFixed(1)}/10`, 280, yPos);
+        yPos += 40;
+      }
+      
+      if (componentScores.walletScore !== undefined) {
+        ctx.fillStyle = "#f6851b";
+        ctx.font = "20px Arial";
+        ctx.fillText(`Wallet: ${componentScores.walletScore.toFixed(1)}/10`, 280, yPos);
+        yPos += 40;
+      }
+      
+      if (componentScores.veridaScore !== undefined) {
+        ctx.fillStyle = "#6c5ce7";
+        ctx.font = "20px Arial";
+        ctx.fillText(`Verida: ${componentScores.veridaScore.toFixed(1)}/10`, 280, yPos);
+        yPos += 40;
+      }
+      
+      // Add badges
+      if (badges && badges.length > 0) {
+        ctx.fillStyle = "#cdd6f4";
+        ctx.font = "bold 24px Arial";
+        ctx.fillText("Badges Earned:", 280, yPos);
+        yPos += 40;
+        
+        badges.forEach((badge, index) => {
+          if (index < 3) { // Limit to 3 badges to fit on certificate
+            ctx.fillStyle = "#f1c40f";
+            ctx.font = "20px Arial";
+            ctx.fillText(`• ${badge}`, 280, yPos);
+            yPos += 30;
+          }
+        });
+      }
       
       // Add border
       ctx.strokeStyle = "#6c7086";
@@ -57,14 +108,14 @@ const DownloadButton = ({ score }) => {
       const currentDate = new Date().toLocaleDateString();
       ctx.fillStyle = "#cdd6f4";
       ctx.font = "20px Arial";
-      ctx.fillText(`Generated on: ${currentDate}`, 290, 500);
+      ctx.fillText(`Generated on: ${currentDate}`, 290, 700);
       
       // Convert canvas to data URL
       const dataURL = canvas.toDataURL("image/png");
       
       // Create download link
       const link = document.createElement("a");
-      link.download = `fomoscore-${score}-${getBadgeTitle(score).toLowerCase()}.${downloadFormat === "pdf" ? "png" : "json"}`;
+      link.download = `fomoscore-${score.toFixed(1)}-${getBadgeTitle(score).toLowerCase()}.${downloadFormat === "pdf" ? "png" : "json"}`;
       link.href = dataURL;
       document.body.appendChild(link);
       link.click();
@@ -88,15 +139,27 @@ const DownloadButton = ({ score }) => {
       await new Promise(resolve => setTimeout(resolve, 1000));
       
       const jsonData = {
-        score: score,
+        score: parseFloat(score.toFixed(1)),
         level: getBadgeTitle(score),
         timestamp: new Date().toISOString(),
         certificateId: `FOMO-${Math.random().toString(36).substr(2, 9).toUpperCase()}`,
+        badges: badges || [],
+        componentScores: {
+          twitter: componentScores.twitterScore !== undefined ? parseFloat(componentScores.twitterScore.toFixed(1)) : 0,
+          wallet: componentScores.walletScore !== undefined ? parseFloat(componentScores.walletScore.toFixed(1)) : 0,
+          verida: componentScores.veridaScore !== undefined ? parseFloat(componentScores.veridaScore.toFixed(1)) : 0
+        },
+        detailedScores: Object.entries(componentScores)
+          .filter(([key]) => !['socialScore', 'cryptoScore', 'telegramScore', 'twitterScore', 'walletScore', 'veridaScore'].includes(key) && componentScores[key] > 0)
+          .reduce((acc, [key, value]) => {
+            acc[key] = parseFloat(value.toFixed(1));
+            return acc;
+          }, {})
       };
       
       const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(jsonData, null, 2));
       const link = document.createElement("a");
-      link.download = `fomoscore-${score}.json`;
+      link.download = `fomoscore-${score.toFixed(1)}.json`;
       link.href = dataStr;
       document.body.appendChild(link);
       link.click();
@@ -120,7 +183,7 @@ const DownloadButton = ({ score }) => {
   };
 
   const handleShare = (platform) => {
-    const scoreText = `Check out my FomoScore: ${score}/100 (${getBadgeTitle(score)})! #FomoScore`;
+    const scoreText = `Check out my FomoScore: ${score.toFixed(1)}/10 (${getBadgeTitle(score)})! #FomoScore`;
     let shareUrl = '';
 
     switch (platform) {
@@ -249,8 +312,22 @@ const DownloadButton = ({ score }) => {
       {/* Preview Information */}
       <div className="mt-4 p-3 bg-gray-800 rounded-lg text-sm">
         <p className="text-gray-300 mb-1">Preview:</p>
-        <p className="font-bold">{`Score: ${score}`}</p>
+        <p className="font-bold">{`Score: ${score.toFixed(1)}/10`}</p>
         <p className="text-blue-400">{`Level: ${getBadgeTitle(score)}`}</p>
+        
+        {/* Display badges if available */}
+        {badges && badges.length > 0 && (
+          <div className="mt-1">
+            <p className="text-yellow-400 font-semibold">Badges:</p>
+            <ul className="list-disc list-inside pl-2">
+              {badges.slice(0, 3).map((badge, index) => (
+                <li key={index} className="text-yellow-300">{badge}</li>
+              ))}
+              {badges.length > 3 && <li className="text-gray-400">+{badges.length - 3} more</li>}
+            </ul>
+          </div>
+        )}
+        
         <p className="text-xs text-gray-400 mt-2">
           Download will include a timestamped certificate showing your FomoScore achievement.
         </p>
@@ -272,7 +349,7 @@ const DownloadButton = ({ score }) => {
             </button>
             </div>
             
-            <p className="mb-4 text-gray-300">Share your FomoScore of {score}/100 ({getBadgeTitle(score)}) with your network</p>
+            <p className="mb-4 text-gray-300">Share your FomoScore of {score.toFixed(1)}/10 ({getBadgeTitle(score)}) with your network</p>
             
             <div className="flex flex-wrap gap-3 justify-center">
               <button 
@@ -324,6 +401,8 @@ const DownloadButton = ({ score }) => {
 
 DownloadButton.propTypes = {
   score: PropTypes.number.isRequired,
+  badges: PropTypes.array,
+  componentScores: PropTypes.object
 };
 
 export default DownloadButton;

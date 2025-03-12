@@ -39,13 +39,14 @@ app.get('/auth/callback', async (req, res) => {
     let did = null;
     let authToken = null;
     
-    // Get the redirectUrl from the query parameters - this is where we'll send the user back to
+    // Get the redirectUrl from query parameters - this is where we'll send the user back to
+    // If not provided, use the FRONTEND_URL from env
     const redirectUrl = req.query.redirectUrl || process.env.FRONTEND_URL || 'http://localhost:5173';
     
     console.log("Auth callback received:", req.query);
     console.log("Will redirect to:", redirectUrl);
     
-    // Check if we have a token parameter
+    // First, check if we have a token directly from Verida (this is the correct flow)
     if (req.query.token) {
       try {
         // Try parsing the token as JSON
@@ -55,16 +56,14 @@ app.get('/auth/callback', async (req, res) => {
         
         console.log("Parsed token data:", JSON.stringify(tokenData));
         
-        // Extract DID and auth token from the token structure
+        // Extract auth token from the token structure
         if (tokenData.token) {
-          did = tokenData.token.did;
           authToken = tokenData.token._id || tokenData.token;
-          console.log("Extracted from token object - DID:", did, "Auth Token:", authToken?.substring(0, 10) + '...');
-        } else if (tokenData.did && tokenData._id) {
+          console.log("Extracted auth token:", authToken?.substring(0, 10) + '...');
+        } else if (tokenData._id) {
           // Alternative format
-          did = tokenData.did;
           authToken = tokenData._id;
-          console.log("Extracted from alternative format - DID:", did, "Auth Token:", authToken?.substring(0, 10) + '...');
+          console.log("Extracted auth token from alternative format:", authToken?.substring(0, 10) + '...');
         }
       } catch (error) {
         console.error("Error parsing token:", error);
@@ -80,6 +79,23 @@ app.get('/auth/callback', async (req, res) => {
       console.log("Using auth_token parameter:", authToken?.substring(0, 10) + '...');
     }
     
+    // If we still don't have an auth token, check if it's in the redirectUrl parameter
+    if (!authToken && redirectUrl.includes('auth_token=')) {
+      try {
+        // Parse the redirectUrl to extract auth_token
+        const redirectUrlObj = new URL(redirectUrl);
+        const redirectParams = new URLSearchParams(redirectUrlObj.search);
+        const extractedAuthToken = redirectParams.get('auth_token');
+        
+        if (extractedAuthToken) {
+          authToken = extractedAuthToken;
+          console.log("Extracted auth_token from redirectUrl:", authToken?.substring(0, 10) + '...');
+        }
+      } catch (error) {
+        console.error("Error extracting auth_token from redirectUrl:", error);
+      }
+    }
+    
     // If we still don't have an auth token, check request body
     if (!authToken) {
       authToken = req.body?.auth_token || req.body?.token;
@@ -88,36 +104,59 @@ app.get('/auth/callback', async (req, res) => {
       }
     }
     
-    // If we still don't have an auth token, redirect to error
+    // If we still don't have an auth token after all attempts, redirect to error
     if (!authToken) {
       console.error("No auth token found in the callback");
-      const redirectWithError = `${redirectUrl}?error=missing_token&message=No+auth+token+found+in+the+callback`;
-      return res.redirect(redirectWithError);
+      return res.redirect(`${redirectUrl}?error=missing_token&message=No+auth+token+found+in+the+callback`);
     }
     
-    // If we have an auth token but no DID, try to get the DID from the auth token
-    if (!did) {
-      try {
-        console.log("No DID found, attempting to retrieve it using the auth token");
-        did = await veridaService.getUserDID(authToken);
-        console.log("Retrieved DID from auth token:", did);
-      } catch (error) {
-        console.error("Error retrieving DID from auth token:", error);
-        // Continue with a temporary DID, the frontend will handle this
-        did = "pending-from-token";
+    // We have the auth token, now get the DID from the Verida API
+    try {
+      console.log("Attempting to retrieve DID using auth token");
+      did = await veridaService.getUserDID(authToken);
+      console.log("Retrieved DID from auth token:", did);
+    } catch (error) {
+      console.error("Error retrieving DID from auth token:", error);
+      // Continue without a DID, the frontend will handle this
+      did = "pending-from-token";
+    }
+    
+    // Construct the redirect URL preserving the original URL path and query params 
+    let finalRedirectUrl;
+    
+    try {
+      // Parse the redirect URL to preserve its path structure
+      const redirectUrlObj = new URL(redirectUrl);
+      
+      // Preserve the original path (which should include the dashboard path with Privy ID if present)
+      const originalPath = redirectUrlObj.pathname;
+      
+      // Create a new URLSearchParams object to clean up the search params
+      // We don't want to keep the existing auth_token in the redirectUrl
+      const searchParams = new URLSearchParams();
+      
+      // Add our auth params
+      searchParams.set('auth_token', authToken);
+      if (did) {
+        searchParams.set('did', did);
       }
+      
+      // Construct the final URL with original path and updated search params
+      finalRedirectUrl = `${redirectUrlObj.origin}${originalPath}?${searchParams.toString()}`;
+      console.log("Redirecting to frontend with preserved path:", finalRedirectUrl);
+    } catch (error) {
+      console.error("Error constructing redirect URL:", error);
+      // Fallback to a simpler redirect URL 
+      finalRedirectUrl = `${redirectUrl.split('?')[0]}?auth_token=${encodeURIComponent(authToken)}${did ? `&did=${encodeURIComponent(did)}` : ''}`;
+      console.log("Fallback redirect URL:", finalRedirectUrl);
     }
     
-    // Redirect to the frontend with the DID and auth token
-    const finalRedirectUrl = `${redirectUrl}?did=${encodeURIComponent(did || 'pending-from-token')}&auth_token=${encodeURIComponent(authToken)}`;
-    
-    console.log("Redirecting to frontend:", finalRedirectUrl);
-    res.redirect(finalRedirectUrl);
+    // Redirect to the frontend with the auth token
+    return res.redirect(finalRedirectUrl);
   } catch (error) {
     console.error("Error in auth callback:", error);
-    const redirectUrl = req.query.redirectUrl || process.env.FRONTEND_URL || 'http://localhost:5173';
-    const redirectWithError = `${redirectUrl}?error=${encodeURIComponent(error.name || 'unknown')}&message=${encodeURIComponent(error.message || 'Unknown error')}`;
-    res.redirect(redirectWithError);
+    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+    return res.redirect(`${frontendUrl}?error=callback_error&message=${encodeURIComponent(error.message || 'Unknown error')}`);
   }
 });
 

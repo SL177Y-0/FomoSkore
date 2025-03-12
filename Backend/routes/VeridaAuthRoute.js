@@ -73,11 +73,14 @@ router.post('/getDID', async (req, res) => {
       return res.status(400).json({ error: 'Auth token is required' });
     }
     
+    console.log("Attempting to get DID from auth token:", authToken.substring(0, 10) + '...');
+    
     // Use the veridaService to get the DID from the auth token
     const did = await veridaService.getUserDID(authToken);
     
     if (!did || did === 'unknown') {
       if (process.env.VERIDA_DEBUG === 'true') {
+        console.log("Debug mode enabled, returning default DID");
         return res.json({ 
           did: process.env.VERIDA_DEFAULT_DID || 'did:vda:testnet:0x123456789',
           note: 'Using default DID in debug mode'
@@ -87,11 +90,13 @@ router.post('/getDID', async (req, res) => {
       return res.status(400).json({ error: 'Could not determine DID from auth token' });
     }
     
+    console.log("Successfully retrieved DID:", did);
     return res.json({ did });
   } catch (error) {
     console.error('Error retrieving DID:', error);
     
     if (process.env.VERIDA_DEBUG === 'true') {
+      console.log("Debug mode enabled, returning default DID despite error");
       return res.json({ 
         did: process.env.VERIDA_DEFAULT_DID || 'did:vda:testnet:0x123456789',
         debug: true

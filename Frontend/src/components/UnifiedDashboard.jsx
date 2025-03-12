@@ -7,6 +7,7 @@ import DownloadButton from "../Home/DownloadButton";
 import axios from "axios";
 import "../Verida/VeridaStyles.css";
 import "./UnifiedDashboard.css";
+import { calculateAdvancedScore } from "../utils/scoreCalculator";
 
 const UnifiedDashboard = () => {
   const { privyId, username, address } = useParams();
@@ -19,26 +20,28 @@ const UnifiedDashboard = () => {
   const [error, setError] = useState(null);
   
   // Score states
-  const [fomoScore, setFomoScore] = useState({
-    overall: 0,
-    twitter: 0,
-    wallet: 0,
-    verida: 0
-  });
+  const [totalScore, setTotalScore] = useState(0);
+  const [twitterScore, setTwitterScore] = useState(0);
+  const [walletScore, setWalletScore] = useState(0);
+  const [veridaScore, setVeridaScore] = useState(0);
+  const [badges, setBadges] = useState([]);
+  const [componentScores, setComponentScores] = useState({});
   const [scoreTitle, setScoreTitle] = useState("BEGINNER");
   
   // Connection states
   const [isTwitterConnected, setIsTwitterConnected] = useState(false);
   const [isWalletConnected, setIsWalletConnected] = useState(false);
+  const [isVeridaConnected, setIsVeridaConnected] = useState(false);
+  const [isVeridaConnecting, setIsVeridaConnecting] = useState(false);
+  
+  // Data states
+  const [twitterData, setTwitterData] = useState(null);
+  const [walletData, setWalletData] = useState(null);
+  const [veridaData, setVeridaData] = useState(null);
   
   // Verida states
   const [veridaUser, setVeridaUser] = useState(null);
   const [veridaAuthToken, setVeridaAuthToken] = useState(null);
-  const [veridaData, setVeridaData] = useState(null);
-  const [isVeridaConnected, setIsVeridaConnected] = useState(false);
-  const [isVeridaConnecting, setIsVeridaConnecting] = useState(false);
-  
-  // Add state for verida groups and messages
   const [veridaGroups, setVeridaGroups] = useState([]);
   const [veridaMessages, setVeridaMessages] = useState([]);
   const [veridaDashboardTab, setVeridaDashboardTab] = useState('overview'); // 'overview', 'groups', or 'messages'
@@ -72,39 +75,126 @@ const UnifiedDashboard = () => {
 
   // Calculate score based on connections
   const calculateScore = () => {
-    // Base scores (could be replaced with actual backend data)
-    let twitterScore = isTwitterConnected ? 5 : 0;
-    let walletScore = isWalletConnected ? 6 : 0;
-    let veridaScore = isVeridaConnected ? 8 : 0;
-    
-    if (veridaData && veridaData.score) {
-      veridaScore = veridaData.score;
-    }
-    
-    // Calculate overall score (weighted average)
-    const totalWeight = (isTwitterConnected ? 1 : 0) + (isWalletConnected ? 1 : 0) + (isVeridaConnected ? 1 : 0);
-    let overallScore = 0;
-    
-    if (totalWeight > 0) {
-      overallScore = Math.round(((twitterScore + walletScore + veridaScore) / 3) * 10);
-    }
-    
-    // Set score title based on overall score
-    let title = "BEGINNER";
-    if (overallScore < 30) title = "BEGINNER";
-    else if (overallScore < 60) title = "INTERMEDIATE";
-    else if (overallScore < 90) title = "ADVANCED";
-    else title = "EXPERT";
-    
-    setFomoScore({
-      overall: overallScore,
-      twitter: twitterScore,
-      wallet: walletScore,
-      verida: veridaScore
+    // Log the data we have for debugging
+    console.log("Calculating score with:", { 
+      twitter: isTwitterConnected, twitterData, 
+      wallet: isWalletConnected, walletData, 
+      verida: isVeridaConnected, veridaData 
     });
     
-    setScoreTitle(title);
-    setLoading(false);
+    try {
+      // Use the advanced algorithm if we have the required data
+      if (twitterData || walletData || veridaData) {
+        const advancedScoreResult = calculateAdvancedScore(
+          twitterData, 
+          walletData, 
+          veridaData
+        );
+        
+        console.log("Advanced score calculation result:", advancedScoreResult);
+        
+        // Store the badges for use in the UI
+        setBadges(advancedScoreResult.badges || []);
+        
+        // Store the component scores for detailed breakdown
+        setComponentScores(advancedScoreResult.components || {});
+        
+        // Update individual scores based on the new calculation
+        if (twitterData) {
+          setTwitterScore(advancedScoreResult.components.socialScore || 0);
+        }
+        
+        if (walletData) {
+          setWalletScore(advancedScoreResult.components.cryptoScore + 
+                        advancedScoreResult.components.nftScore || 0);
+        }
+        
+        if (veridaData) {
+          setVeridaScore(advancedScoreResult.components.telegramScore || 0);
+        }
+        
+        // Set the total score
+        setTotalScore(advancedScoreResult.score || 0);
+        return;
+      }
+      
+      // Legacy/fallback scoring logic if we don't have detailed data
+      // Base scores
+      let twitterScore = isTwitterConnected ? 5 : 0;
+      let walletScore = isWalletConnected ? 6 : 0;
+      let veridaScore = isVeridaConnected ? 8 : 0;
+      
+      if (veridaData && veridaData.score) {
+        veridaScore = veridaData.score;
+      }
+      
+      // If we have wallet data, calculate a more dynamic score
+      if (walletData) {
+        const tokenCount = walletData.tokenBalances?.length || 0;
+        const nftCount = walletData.walletNFTs?.result?.length || 0;
+        
+        // Adjust wallet score based on tokens and NFTs
+        walletScore = Math.min(8, 3 + (tokenCount > 0 ? 2 : 0) + (nftCount > 0 ? 3 : 0));
+      }
+      
+      // If we have Twitter data, calculate a more dynamic score
+      if (twitterData) {
+        const followers = twitterData.result?.legacy?.followers_count || 0;
+        const tweetCount = twitterData.result?.legacy?.statuses_count || 0;
+        
+        // Adjust Twitter score based on followers and tweet count
+        if (followers > 10000 || tweetCount > 5000) {
+          twitterScore = 8;
+        } else if (followers > 1000 || tweetCount > 1000) {
+          twitterScore = 6;
+        } else {
+          twitterScore = 4;
+        }
+      }
+      
+      // Store individual scores
+      setTwitterScore(twitterScore);
+      setWalletScore(walletScore);
+      setVeridaScore(veridaScore);
+      
+      // Calculate average for connected services
+      let connectedCount = 0;
+      let scoreSum = 0;
+      
+      if (isTwitterConnected) {
+        connectedCount++;
+        scoreSum += twitterScore;
+      }
+      
+      if (isWalletConnected) {
+        connectedCount++;
+        scoreSum += walletScore;
+      }
+      
+      if (isVeridaConnected) {
+        connectedCount++;
+        scoreSum += veridaScore;
+      }
+      
+      // Calculate final score (average of connected services)
+      const finalScore = connectedCount > 0 
+        ? parseFloat((scoreSum / connectedCount).toFixed(1)) 
+        : 0;
+      
+      setTotalScore(finalScore);
+      
+      // Legacy badges
+      setBadges([
+        isTwitterConnected ? "Twitter Connected" : null,
+        isWalletConnected ? "Wallet Connected" : null,
+        isVeridaConnected ? "Verida Connected" : null
+      ].filter(Boolean));
+      
+    } catch (error) {
+      console.error("Error calculating score:", error);
+      // Fallback to a default score
+      setTotalScore(0);
+    }
   };
 
   // Initialize the dashboard with user data
@@ -126,6 +216,41 @@ const UnifiedDashboard = () => {
     }, 1000);
   }, [address, username]);
   
+  const connectWithVerida = () => {
+    setIsVeridaConnecting(true);
+    setError(null); // Clear any previous errors
+    
+    // Use the backend API to handle Verida auth
+    const apiBaseUrl = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5001';
+    
+    // Get the current full URL including the path (with Privy ID, username, etc.)
+    const currentUrl = window.location.href;
+    
+    // Create the callback URL that includes the redirectUrl back to the current page
+    const callbackUrl = `${apiBaseUrl}/auth/callback?redirectUrl=${encodeURIComponent(currentUrl)}`;
+    
+    // Consistent format with working implementation
+    const scopes = [
+      'api:ds-query',
+      'api:search-universal',
+      'ds:social-email',
+      'api:search-ds',
+      'api:search-chat-threads',
+      'ds:r:social-chat-group',
+      'ds:r:social-chat-message'
+    ].join('&scopes=');
+    
+    const appDID = 'did:vda:mainnet:0x87AE6A302aBf187298FC1Fa02A48cFD9EAd2818D';
+    
+    // Create the auth URL with the callback URL to our backend
+    const authUrl = `https://app.verida.ai/auth?scopes=${scopes}&redirectUrl=${encodeURIComponent(callbackUrl)}&appDID=${encodeURIComponent(appDID)}`;
+    
+    console.log("Redirecting to Verida auth:", authUrl);
+    
+    // Use direct redirect like the working implementation
+    window.location.href = authUrl;
+  };
+  
   // Process URL query params - specifically for Verida auth callback
   useEffect(() => {
     const searchParams = new URLSearchParams(location.search);
@@ -140,109 +265,111 @@ const UnifiedDashboard = () => {
       if (error) {
         console.error("Auth error:", error, errorMessage);
         setError(`Authentication error: ${errorMessage || error}`);
-        navigate(location.pathname, { replace: true });
+        setIsVeridaConnecting(false);
+        
+        // Clear URL parameters
+        if (window.history.replaceState) {
+          const url = window.location.href.split('?')[0];
+          window.history.replaceState({}, document.title, url);
+        }
         return;
       }
       
-      // Check for parameters from Verida callback
-      const did = searchParams.get("did");
-      
-      // Check both auth_token and authToken parameters
+      // Check for auth token parameter
       const authToken = searchParams.get("auth_token") || searchParams.get("authToken");
       
-      // Check for token parameter - direct from Verida
+      // Process token parameter directly from Verida if present
       const tokenParam = searchParams.get("token");
       
-      // Process direct token parameter from Verida if available
       if (tokenParam) {
         try {
           const tokenData = JSON.parse(tokenParam);
           console.log('Processing token data from Verida:', tokenData);
           
-          // Extract DID and token based on Verida's structure
-          let extractedDid, extractedToken;
+          // Extract token from Verida's structure
+          let extractedToken;
           
           if (tokenData.token) {
-            extractedDid = tokenData.token.did;
             extractedToken = tokenData.token._id || tokenData.token;
-          } else if (tokenData.did) {
-            extractedDid = tokenData.did;
+          } else if (tokenData._id) {
             extractedToken = tokenData._id;
           }
           
-          if (extractedDid && extractedToken) {
-            console.log("Extracted Verida data - DID:", extractedDid, "Token:", extractedToken.substring(0, 10) + '...');
-            setIsVeridaConnecting(true);
-            setVeridaUser({ did: extractedDid });
-            setVeridaAuthToken(extractedToken);
-            setIsVeridaConnected(true);
-            
-            // Fetch score with the extracted data
-            fetchVeridaScore(extractedDid, extractedToken, privyId);
-            
-            // Get groups and messages data
-            setVeridaGroups(getVeridaGroupsData());
-            setVeridaMessages(getVeridaMessagesData());
-            
-            // Clear the URL parameters to avoid reprocessing
-            navigate(location.pathname, { replace: true });
-            
-            // Mark Verida connecting as done after a short delay
-            setTimeout(() => {
-              setIsVeridaConnecting(false);
-            }, 1500);
-            
+          if (extractedToken) {
+            // We only need the auth token, the DID will be fetched from the API
+            handleVeridaAuth(extractedToken);
             return;
           }
-        } catch (err) {
-          console.error('Error parsing token data:', err);
-          setError('Failed to process Verida authentication data');
+        } catch (error) {
+          console.error('Error parsing token data:', error);
         }
       }
       
-      // Process auth token and DID from backend callback
+      // Process auth token from backend callback
       if (authToken) {
-        setIsVeridaConnecting(true);
-        console.log("Found Verida auth token:", authToken.substring(0, 10) + '...');
-        
-        // If we have a DID directly, use it
-        if (did && did !== 'null' && did !== 'undefined') {
-          console.log("Using provided DID:", did);
-          setVeridaUser({ did });
-          setVeridaAuthToken(authToken);
-          setIsVeridaConnected(true);
-          
-          // Fetch score with the provided DID and token
-          fetchVeridaScore(did, authToken, privyId);
-          
-          // Fetch groups and messages data
-          setVeridaGroups(getVeridaGroupsData());
-          setVeridaMessages(getVeridaMessagesData());
-        } else {
-          // We have an auth token but no DID, try to get DID from the token
-          console.log("No DID provided, will try to get it from auth token");
-          setVeridaUser({ did: "pending-from-token" });
-          setVeridaAuthToken(authToken);
-          setIsVeridaConnected(true);
-          
-          // Fetch DID and score using the auth token
-          fetchVeridaScore("pending-from-token", authToken, privyId);
-          
-          // Fetch groups and messages data
-          setVeridaGroups(getVeridaGroupsData());
-          setVeridaMessages(getVeridaMessagesData());
-        }
-        
-        // Clear the URL parameters to avoid reprocessing
-        navigate(location.pathname, { replace: true });
-        
-        // Mark Verida connecting as done after a short delay
-        setTimeout(() => {
-          setIsVeridaConnecting(false);
-        }, 1500);
+        // We only need the auth token, the DID will be fetched from the API
+        handleVeridaAuth(authToken);
       }
     }
-  }, [location, navigate, privyId]);
+  }, [location]);
+
+  // Handle Verida authentication with just the auth token
+  const handleVeridaAuth = async (authToken) => {
+    try {
+      setIsVeridaConnecting(true);
+      setError(null);
+      
+      console.log("Processing Verida auth with token:", authToken.substring(0, 10) + '...');
+      
+      // Store the auth token
+      setVeridaAuthToken(authToken);
+      
+      // Fetch the DID from the Verida API
+      const response = await axios.post(
+        `${import.meta.env.VITE_API_BASE_URL || 'http://localhost:5001'}/api/verida-auth/getDID`,
+        { authToken }
+      );
+      
+      if (response.data && response.data.did) {
+        const did = response.data.did;
+        console.log("Retrieved DID from API:", did);
+        
+        // Store the DID
+        setVeridaUser({ did });
+        setIsVeridaConnected(true);
+        
+        // Fetch score with the provided DID and token
+        fetchVeridaScore(did, authToken, privyId);
+        
+        // Fetch groups and messages data
+        setVeridaGroups(getVeridaGroupsData());
+        setVeridaMessages(getVeridaMessagesData());
+      } else {
+        throw new Error("Failed to retrieve DID from auth token");
+      }
+      
+      // Clear URL parameters
+      if (window.history.replaceState) {
+        const url = window.location.href.split('?')[0];
+        window.history.replaceState({}, document.title, url);
+      }
+    } catch (error) {
+      console.error("Error processing Verida auth:", error);
+      setError(`Verida authentication error: ${error.response?.data?.error || error.message}`);
+      setIsVeridaConnecting(false);
+      
+      // In debug mode, try with a test DID
+      if (import.meta.env.VITE_DEBUG_MODE === 'true') {
+        console.log("Debug mode is enabled, setting test auth data despite error");
+        setVeridaUser({ did: 'test-debug-did' });
+        setVeridaAuthToken('test-debug-token');
+        setIsVeridaConnected(true);
+        fetchVeridaScore('test-debug-did', 'test-debug-token', privyId);
+        setVeridaGroups(getVeridaGroupsData());
+        setVeridaMessages(getVeridaMessagesData());
+      }
+    }
+  };
 
   // Update scores when connection status changes
   useEffect(() => {
@@ -258,36 +385,6 @@ const UnifiedDashboard = () => {
     }
   };
 
-  const connectWithVerida = () => {
-    setIsVeridaConnecting(true);
-    
-    // Use the backend API to handle Verida auth
-    const apiBaseUrl = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5001';
-    
-    // The redirect URL should go back to the dashboard page with the privyId
-    const redirectUrl = `${window.location.origin}/dashboard/${privyId}/${username || 'guest'}/${address || 'null'}`;
-    
-    // Consistent format with working implementation
-    const scopes = [
-      'api:ds-query',
-      'api:search-universal',
-      'ds:social-email',
-      'api:search-ds',
-      'api:search-chat-threads',
-      'ds:r:social-chat-group',
-      'ds:r:social-chat-message'
-    ].join('&scopes=');
-    
-    const appDID = 'did:vda:mainnet:0x87AE6A302aBf187298FC1Fa02A48cFD9EAd2818D';
-    
-    // Create the auth URL with the correct callback URL to our backend
-    // The backend should redirect back to our dashboard with the auth token and DID
-    const authUrl = `https://app.verida.ai/auth?scopes=${scopes}&redirectUrl=${encodeURIComponent(`${apiBaseUrl}/auth/callback?redirectUrl=${encodeURIComponent(redirectUrl)}`)}&appDID=${encodeURIComponent(appDID)}`;
-    
-    console.log("Redirecting to Verida auth:", authUrl);
-    window.location.href = authUrl;
-  };
-
   const fetchVeridaScore = async (did, authToken, privyId) => {
     try {
       console.log("Fetching Verida score with:", { 
@@ -295,6 +392,41 @@ const UnifiedDashboard = () => {
         authToken: authToken ? (authToken.substring(0, 10) + '...') : 'none',
         privyId
       });
+      
+      // Check if we're in debug mode
+      if (import.meta.env.VITE_DEBUG_MODE === 'true' && (did.includes('test-debug') || authToken.includes('test-debug'))) {
+        console.log("Debug mode detected with test credentials, using mock data");
+        
+        // Create mock data for testing
+        const mockData = {
+          did: did || 'test-debug-did',
+          score: 8.5,
+          data: {
+            telegram: {
+              groups: 15,
+              messages: 350,
+              engagementRate: 0.65
+            },
+            keywordMatches: {
+              totalCount: 12,
+              keywords: {
+                cluster: 4,
+                protocol: 5,
+                ai: 3
+              }
+            }
+          }
+        };
+        
+        // Simulate API delay
+        await new Promise(resolve => setTimeout(resolve, 500));
+        
+        setVeridaData(mockData);
+        setIsVeridaConnected(true);
+        calculateScore();
+        setIsVeridaConnecting(false);
+        return;
+      }
       
       // Validate inputs before making the API call
       if (!authToken) {
@@ -339,6 +471,7 @@ const UnifiedDashboard = () => {
       
       // Check if we got valid data
       if (response.data && (response.data.score !== undefined || response.data.data)) {
+        // Store the complete Verida data for advanced scoring
         setVeridaData(response.data);
         
         // Update Verida connection status
@@ -346,6 +479,9 @@ const UnifiedDashboard = () => {
         
         // Update Verida score in overall scores via calculateScore
         calculateScore();
+        
+        // Show a success message
+        setError(null); // Clear any existing error
       } else {
         console.warn("Received response but no score data:", response.data);
         throw new Error('No score data received from server');
@@ -361,21 +497,47 @@ const UnifiedDashboard = () => {
       if (err.response?.status === 401) {
         setError(`Authentication error: Your Verida token is invalid or expired`);
       } else if (err.response?.status === 404) {
-        setError(`No Telegram data found in your Verida vault. Please sync your Telegram data first.`);
-      } else if (err.message.includes('timeout')) {
-        setError(`Request timed out. The server might be overloaded, please try again.`);
+        setError(`API endpoint not found. Check server configuration.`);
+      } else if (err.code === 'ECONNABORTED') {
+        setError(`Connection timeout. The server is taking too long to respond.`);
+      } else if (err.message.includes('Network Error')) {
+        setError(`Network error. Make sure the server is running.`);
       } else {
         setError(`Error: ${err.response?.data?.message || err.message}`);
       }
       
-      setIsVeridaConnecting(false);
-      
-      // For debugging, still show verida panel in case of error
-      if (import.meta.env.VITE_DEBUG_MODE === 'true' || import.meta.env.VITE_DEBUG_MODE === true) {
-        console.log("Debug mode: Showing example Verida data despite error");
-        setVeridaGroups(getVeridaGroupsData());
-        setVeridaMessages(getVeridaMessagesData());
+      // If debug mode is enabled, use test data
+      if (import.meta.env.VITE_DEBUG_MODE === 'true') {
+        console.log("Debug mode enabled, using test data despite error");
+        
+        const testData = {
+          did: did || 'error-recovery-did',
+          score: 7.5,
+          data: {
+            telegram: {
+              groups: 10,
+              messages: 250,
+              engagementRate: 0.55
+            },
+            keywordMatches: {
+              totalCount: 8,
+              keywords: {
+                cluster: 3,
+                protocol: 4,
+                ai: 1
+              }
+            }
+          }
+        };
+        
+        setVeridaData(testData);
+        setIsVeridaConnected(true);
+        calculateScore();
+      } else {
+        setIsVeridaConnected(false);
       }
+      
+      setIsVeridaConnecting(false);
     }
   };
 
@@ -391,11 +553,27 @@ const UnifiedDashboard = () => {
   // Handler for Twitter connection status updates
   const handleTwitterConnectionChange = (isConnected) => {
     setIsTwitterConnected(isConnected);
+    calculateScore();
   };
 
   // Handler for Wallet connection status updates
   const handleWalletConnectionChange = (isConnected) => {
     setIsWalletConnected(isConnected);
+    calculateScore();
+  };
+
+  // Update to store Twitter data for advanced scoring
+  const handleTwitterDataReceived = (data) => {
+    console.log("Received Twitter data:", data);
+    setTwitterData(data);
+    calculateScore();
+  };
+  
+  // Update to store Wallet data for advanced scoring
+  const handleWalletDataReceived = (data) => {
+    console.log("Received Wallet data:", data);
+    setWalletData(data);
+    calculateScore();
   };
 
   return (
@@ -429,17 +607,45 @@ const UnifiedDashboard = () => {
                 <p className="ml-4 text-gray-400">Calculating...</p>
               </div>
             ) : (
-              <div className="flex flex-col items-center mb-6">
+              <div className="text-center">
                 <div 
                   className="score-circle mb-4" 
                   style={{ 
-                    background: `conic-gradient(${getScoreColor(fomoScore.overall / 10)} ${fomoScore.overall}%, var(--v-card-background) 0)` 
+                    background: `conic-gradient(${getScoreColor(totalScore / 10)} ${totalScore * 10}%, var(--v-card-background) 0)` 
                   }}
                 >
-                  <div className="score-value">{fomoScore.overall}</div>
-                  <div className="score-scale">/ 100</div>
+                  <div className="score-value">{totalScore.toFixed(1)}</div>
+                  <div className="score-scale">/ 10</div>
                 </div>
-                <p className="score-category" style={{ color: getScoreColor(fomoScore.overall / 10) }}>{scoreTitle}</p>
+                
+                {/* Calculate score title based on total score */}
+                {(() => {
+                  let title = "BEGINNER";
+                  if (totalScore < 3) title = "BEGINNER";
+                  else if (totalScore < 6) title = "INTERMEDIATE";
+                  else if (totalScore < 8) title = "ADVANCED";
+                  else title = "EXPERT";
+                  return (
+                    <p className="score-category" style={{ color: getScoreColor(totalScore / 10) }}>{title}</p>
+                  );
+                })()}
+                
+                {/* Display badges */}
+                {badges.length > 0 && (
+                  <div className="mt-6">
+                    <h3 className="text-lg font-semibold mb-2">Your Badges</h3>
+                    <div className="flex flex-wrap justify-center gap-2">
+                      {badges.map((badge, index) => (
+                        <span 
+                          key={index} 
+                          className="px-3 py-1 bg-gray-700 text-blue-300 rounded-full text-xs"
+                        >
+                          {badge}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -462,52 +668,72 @@ const UnifiedDashboard = () => {
             </div>
             
             {activeScoreTab === 'breakdown' && (
-              <div className="p-6">
-                <h2 className="text-xl font-bold mb-4">Score Breakdown</h2>
+              <div className="p-6 border-t border-gray-700">
+                <h3 className="text-lg font-semibold mb-4">Score Breakdown</h3>
                 
-                {loading ? (
-                  <div className="flex justify-center items-center py-8">
-                    <div className="w-8 h-8 border-3 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
+                {/* Twitter Score */}
+                <div className="mb-4">
+                  <div className="flex justify-between mb-1">
+                    <span>X/Twitter Score</span>
+                    <span>{twitterScore.toFixed(1)}/10</span>
                   </div>
-                ) : (
-                  <div className="space-y-4">
-                    <div className="p-3">
-                      <div className="flex justify-between mb-1">
-                        <span>X/Twitter Score</span>
-                        <span>{fomoScore.twitter}/10</span>
-                      </div>
-                      <div className="score-bar-container">
-                        <div 
-                          className="score-bar twitter-score-bar" 
-                          style={{ width: `${fomoScore.twitter * 10}%` }}
-                        ></div>
-                      </div>
-                    </div>
-                    
-                    <div className="p-3">
-                      <div className="flex justify-between mb-1">
-                        <span>Wallet Score</span>
-                        <span>{fomoScore.wallet}/10</span>
-                      </div>
-                      <div className="score-bar-container">
-                        <div 
-                          className="score-bar wallet-score-bar" 
-                          style={{ width: `${fomoScore.wallet * 10}%` }}
-                        ></div>
-                      </div>
-                    </div>
-                    
-                    <div className="p-3">
-                      <div className="flex justify-between mb-1">
-                        <span>Verida Score</span>
-                        <span>{fomoScore.verida}/10</span>
-                      </div>
-                      <div className="score-bar-container">
-                        <div 
-                          className="score-bar verida-score-bar" 
-                          style={{ width: `${fomoScore.verida * 10}%` }}
-                        ></div>
-                      </div>
+                  <div className="score-bar-container">
+                    <div 
+                      className="score-bar twitter-score-bar" 
+                      style={{ width: `${twitterScore * 10}%` }}
+                    ></div>
+                  </div>
+                </div>
+                
+                {/* Wallet Score */}
+                <div className="mb-4">
+                  <div className="flex justify-between mb-1">
+                    <span>Wallet Score</span>
+                    <span>{walletScore.toFixed(1)}/10</span>
+                  </div>
+                  <div className="score-bar-container">
+                    <div 
+                      className="score-bar wallet-score-bar" 
+                      style={{ width: `${walletScore * 10}%` }}
+                    ></div>
+                  </div>
+                </div>
+                
+                {/* Verida Score */}
+                <div className="mb-4">
+                  <div className="flex justify-between mb-1">
+                    <span>Verida Score</span>
+                    <span>{veridaScore.toFixed(1)}/10</span>
+                  </div>
+                  <div className="score-bar-container">
+                    <div 
+                      className="score-bar verida-score-bar" 
+                      style={{ width: `${veridaScore * 10}%` }}
+                    ></div>
+                  </div>
+                </div>
+                
+                {/* Advanced Component Scores */}
+                {Object.keys(componentScores).length > 0 && (
+                  <div className="mt-6">
+                    <h3 className="text-lg font-semibold mb-2">Detailed Components</h3>
+                    <div className="grid grid-cols-2 gap-2">
+                      {Object.entries(componentScores)
+                        .filter(([key, value]) => value > 0 && key !== 'socialScore' && key !== 'cryptoScore' && key !== 'telegramScore')
+                        .map(([key, value]) => (
+                          <div key={key} className="bg-gray-700 p-2 rounded">
+                            <div className="flex justify-between text-xs">
+                              <span>{key.replace('Score', '')}</span>
+                              <span>{value.toFixed(1)}</span>
+                            </div>
+                            <div className="h-1 bg-gray-600 mt-1 rounded-full overflow-hidden">
+                              <div 
+                                className="h-full bg-blue-500" 
+                                style={{ width: `${Math.min(value * 10, 100)}%` }}
+                              ></div>
+                            </div>
+                          </div>
+                        ))}
                     </div>
                   </div>
                 )}
@@ -515,9 +741,13 @@ const UnifiedDashboard = () => {
             )}
             
             {activeScoreTab === 'download' && (
-              <div className="p-6">
+              <div className="p-6 border-t border-gray-700">
                 <h2 className="text-xl font-bold mb-4">Download Your Score</h2>
-                <DownloadButton score={fomoScore.overall} />
+                <DownloadButton 
+                  score={totalScore} 
+                  badges={badges}
+                  componentScores={componentScores}
+                />
               </div>
             )}
           </div>
@@ -525,7 +755,12 @@ const UnifiedDashboard = () => {
           {/* Right Top: Wallet Connect */}
           <div className="card-container p-6 overflow-auto max-h-[600px]">
             <h2 className="text-xl font-bold mb-4">Connect Your Wallet</h2>
-            <WalletConnect onConnectionChange={handleWalletConnectionChange} />
+            <WalletConnect 
+              walletAddress={address} 
+              privyId={privyId} 
+              onConnectionChange={handleWalletConnectionChange}
+              onDataReceived={handleWalletDataReceived}
+            />
           </div>
         </div>
         
@@ -533,162 +768,260 @@ const UnifiedDashboard = () => {
           {/* Left Bottom: X/Twitter Connect */}
           <div className="card-container p-6">
             <h2 className="text-xl font-bold mb-4">Connect X/Twitter</h2>
-            <TwitterAuth onConnectionChange={handleTwitterConnectionChange} />
+            <TwitterAuth 
+              userId={username} 
+              privyId={privyId} 
+              onConnectionChange={handleTwitterConnectionChange}
+              onDataReceived={handleTwitterDataReceived}
+            />
           </div>
           
           {/* Middle Bottom: Verida Panel */}
           <div className="card-container p-6">
             <h2 className="text-xl font-bold mb-4 v-title">VERIDA</h2>
             
-            {isVeridaConnecting ? (
-              <div className="text-center py-10">
-                <div className="w-16 h-16 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
-                <p className="text-lg font-medium">Connecting to Verida...</p>
-                <p className="text-sm text-gray-400 mt-2">Please wait while we establish a secure connection</p>
-              </div>
-            ) : !isVeridaConnected ? (
-              <div className="text-center">
-                <p className="text-gray-400 mb-6">Connect with Verida to enhance your FOMO score based on your digital activity.</p>
-                <button 
-                  className="v-verida-button"
-                  onClick={connectWithVerida}
-                >
-                  <img src="/verida-logo.svg" alt="Verida Logo" className="h-6 mr-2" />
-                  Connect with Verida
-                </button>
-              </div>
-            ) : (
-              <div className="v-dashboard-content">
-                <div className="v-user-info mb-4">
-                  <div className="v-did-info">
-                    <span>Verida DID:</span>
-                    <span className="v-did-value">
-                      {veridaUser?.did || "Unknown"}
+            {/* VERIDA PANEL */}
+            <div className="bg-gray-800 rounded-lg p-6 shadow-lg relative overflow-hidden">
+              <div className="flex justify-between items-start mb-4">
+                <h3 className="text-xl font-bold text-white">Verida</h3>
+                <div className="flex space-x-2">
+                  {isVeridaConnected ? (
+                    <span className="px-2 py-1 text-xs rounded-full bg-green-500 text-white flex items-center">
+                      <span className="h-2 w-2 rounded-full bg-white mr-1 animate-pulse"></span>
+                      Connected
                     </span>
-                  </div>
+                  ) : (
+                    <span className="px-2 py-1 text-xs rounded-full bg-gray-600 text-gray-300">Not Connected</span>
+                  )}
+                  {isVeridaConnected && (
+                    <button 
+                      onClick={() => fetchVeridaScore(veridaUser?.did, veridaAuthToken, privyId)}
+                      className="px-2 py-1 text-xs rounded-full bg-blue-600 text-white hover:bg-blue-700 transition-colors"
+                      disabled={isVeridaConnecting}
+                    >
+                      {isVeridaConnecting ? 'Refreshing...' : 'Refresh'}
+                    </button>
+                  )}
                 </div>
-                
-                {/* Verida Dashboard Tabs */}
-                <div className="verida-dashboard-tabs">
-                  <button 
-                    className={`verida-tab-button ${veridaDashboardTab === 'overview' ? 'active' : ''}`}
-                    onClick={() => setVeridaDashboardTab('overview')}
-                  >
-                    Overview
-                  </button>
-                  <button 
-                    className={`verida-tab-button ${veridaDashboardTab === 'groups' ? 'active' : ''}`}
-                    onClick={() => setVeridaDashboardTab('groups')}
-                  >
-                    Groups
-                  </button>
-                  <button 
-                    className={`verida-tab-button ${veridaDashboardTab === 'messages' ? 'active' : ''}`}
-                    onClick={() => setVeridaDashboardTab('messages')}
-                  >
-                    Messages
-                  </button>
+              </div>
+              
+              {isVeridaConnecting ? (
+                <div className="flex flex-col items-center justify-center py-10">
+                  <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-500 mb-4"></div>
+                  <p className="text-gray-400">Connecting to Verida...</p>
+                  <p className="text-gray-500 text-sm mt-2">Please wait while we authenticate with Verida</p>
                 </div>
-                
-                {/* Overview Tab */}
-                {veridaDashboardTab === 'overview' && veridaData && (
-                  <div className="space-y-4">
-                    <div className="v-stats-container">
-                      <div className="v-stat-item">
-                        <div className="v-stat-label">Telegram Groups</div>
-                        <div className="v-stat-value">{veridaData.data?.telegram?.groups || 0}</div>
-                      </div>
-                      
-                      <div className="v-stat-item">
-                        <div className="v-stat-label">Messages</div>
-                        <div className="v-stat-value">{veridaData.data?.telegram?.messages || 0}</div>
-                      </div>
-                      
-                      <div className="v-stat-item">
-                        <div className="v-stat-label">Engagement</div>
-                        <div className="v-stat-value">{veridaData.data?.telegram?.engagementRate ? 
-                          `${(veridaData.data.telegram.engagementRate * 100).toFixed(0)}%` : '0%'}</div>
+              ) : isVeridaConnected ? (
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-gray-400 text-sm">User DID:</p>
+                      <p className="text-white font-mono text-xs truncate max-w-[240px]">{veridaUser?.did || 'Unknown'}</p>
+                    </div>
+                    <div>
+                      <p className="text-gray-400 text-sm mb-1">Score:</p>
+                      <div className="bg-gray-900 rounded-full px-3 py-1">
+                        <span className="text-xl font-bold text-blue-500">{veridaData?.score ? veridaData.score.toFixed(1) : '0.0'}</span>
+                        <span className="text-gray-500">/10</span>
                       </div>
                     </div>
-                    
-                    {veridaData.data?.keywords && veridaData.data.keywords.length > 0 && (
-                      <div className="mt-4">
-                        <h3 className="text-lg font-semibold mb-2">Top Keywords</h3>
-                        <div className="flex flex-wrap gap-2">
-                          {veridaData.data.keywords.map((keyword, index) => (
-                            <span 
-                              key={index} 
-                              className="keyword-tag"
-                              style={{ backgroundColor: `rgba(93, 95, 239, ${0.3 + (0.7 * index / veridaData.data.keywords.length)})` }}
-                            >
-                              {keyword.name} ({keyword.count})
-                            </span>
-                          ))}
+                  </div>
+                  
+                  {/* Tabs for different views */}
+                  <div className="border-b border-gray-700 mt-2">
+                    <div className="flex space-x-4">
+                      <button
+                        onClick={() => setVeridaDashboardTab('overview')}
+                        className={`py-2 px-4 font-medium text-sm border-b-2 ${
+                          veridaDashboardTab === 'overview'
+                            ? 'border-blue-500 text-blue-500'
+                            : 'border-transparent text-gray-400 hover:text-gray-300'
+                        }`}
+                      >
+                        Overview
+                      </button>
+                      <button
+                        onClick={() => setVeridaDashboardTab('groups')}
+                        className={`py-2 px-4 font-medium text-sm border-b-2 ${
+                          veridaDashboardTab === 'groups'
+                            ? 'border-blue-500 text-blue-500'
+                            : 'border-transparent text-gray-400 hover:text-gray-300'
+                        }`}
+                      >
+                        Groups
+                      </button>
+                      <button
+                        onClick={() => setVeridaDashboardTab('messages')}
+                        className={`py-2 px-4 font-medium text-sm border-b-2 ${
+                          veridaDashboardTab === 'messages'
+                            ? 'border-blue-500 text-blue-500'
+                            : 'border-transparent text-gray-400 hover:text-gray-300'
+                        }`}
+                      >
+                        Messages
+                      </button>
+                    </div>
+                  </div>
+                  
+                  {/* Overview Tab Content */}
+                  {veridaDashboardTab === 'overview' && (
+                    <div className="space-y-4">
+                      <div className="grid grid-cols-2 gap-4">
+                        <div className="bg-gray-900 rounded-lg p-4">
+                          <p className="text-gray-400 text-sm">Telegram Groups</p>
+                          <p className="text-white text-xl font-semibold">
+                            {veridaData?.data?.telegram?.groups || 0}
+                          </p>
+                        </div>
+                        <div className="bg-gray-900 rounded-lg p-4">
+                          <p className="text-gray-400 text-sm">Telegram Messages</p>
+                          <p className="text-white text-xl font-semibold">
+                            {veridaData?.data?.telegram?.messages || 0}
+                          </p>
                         </div>
                       </div>
-                    )}
-                  </div>
-                )}
-                
-                {/* Groups Tab */}
-                {veridaDashboardTab === 'groups' && (
-                  <div className="space-y-4">
-                    <h3 className="text-lg font-semibold mb-2">Your Groups</h3>
-                    
-                    {veridaGroups.length === 0 ? (
-                      <p className="text-gray-400">No groups found.</p>
-                    ) : (
-                      <div className="space-y-3">
-                        {veridaGroups.map(group => (
-                          <div key={group.id} className="group-card">
-                            <div className="flex justify-between">
-                              <h4 className="group-name">{group.name}</h4>
-                              <span className={`group-activity ${
-                                group.activity === 'high' ? 'activity-high' :
-                                group.activity === 'medium' ? 'activity-medium' :
-                                'activity-low'
-                              }`}>
-                                {group.activity.toUpperCase()}
+                      
+                      <div className="bg-gray-900 rounded-lg p-4">
+                        <p className="text-gray-400 text-sm mb-2">Engagement Keywords</p>
+                        {veridaData?.data?.keywordMatches?.totalCount > 0 ? (
+                          <div className="flex flex-wrap gap-2">
+                            {Object.entries(veridaData.data.keywordMatches.keywords || {}).map(([keyword, count]) => (
+                              <span key={keyword} className="bg-gray-800 px-2 py-1 rounded text-xs text-white flex items-center">
+                                {keyword} <span className="ml-1 bg-blue-500 text-white rounded-full w-5 h-5 flex items-center justify-center text-xs">{count}</span>
                               </span>
-                            </div>
-                            <div className="group-meta">
-                              <span>{group.members} members</span>
-                              <span>Last active: {group.lastActive}</span>
-                            </div>
+                            ))}
                           </div>
-                        ))}
+                        ) : (
+                          <p className="text-gray-500 text-sm">No keyword matches found</p>
+                        )}
                       </div>
-                    )}
-                  </div>
-                )}
-                
-                {/* Messages Tab */}
-                {veridaDashboardTab === 'messages' && (
-                  <div className="space-y-4">
-                    <h3 className="text-lg font-semibold mb-2">Recent Messages</h3>
-                    
-                    {veridaMessages.length === 0 ? (
-                      <p className="text-gray-400">No messages found.</p>
-                    ) : (
-                      <div className="space-y-3">
-                        {veridaMessages.map(message => (
-                          <div key={message.id} className="message-card">
+                      
+                      {/* Download score section */}
+                      <div className="bg-gray-900 rounded-lg p-4 border border-gray-700">
+                        <p className="text-gray-300 font-medium mb-2">Download Your Score</p>
+                        <div className="flex space-x-2">
+                          <button 
+                            onClick={() => generateScoreBadge()}
+                            className="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1 rounded text-sm flex items-center"
+                            disabled={!isVeridaConnected}
+                          >
+                            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                            </svg>
+                            Badge
+                          </button>
+                          <button 
+                            onClick={() => downloadScoreImage()}
+                            className="bg-purple-600 hover:bg-purple-700 text-white px-3 py-1 rounded text-sm flex items-center"
+                            disabled={!isVeridaConnected}
+                          >
+                            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                            </svg>
+                            Image
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                  
+                  {/* Groups Tab Content */}
+                  {veridaDashboardTab === 'groups' && (
+                    <div className="space-y-2 max-h-80 overflow-y-auto pr-2">
+                      {veridaGroups.length > 0 ? (
+                        veridaGroups.map((group, index) => (
+                          <div key={group.id || index} className="bg-gray-900 rounded-lg p-3 hover:bg-gray-850 transition-colors">
                             <div className="flex justify-between items-start">
                               <div>
-                                <span className="message-sender">{message.sender}</span>
-                                <span className="message-group">in {message.group}</span>
+                                <p className="text-white font-medium">{group.name}</p>
+                                <p className="text-gray-400 text-xs">{group.members} members</p>
                               </div>
-                              <span className="text-xs text-gray-500">{message.time}</span>
+                              <div>
+                                <span className={`px-2 py-1 text-xs rounded-full ${
+                                  group.activity === 'high' ? 'bg-green-500 text-white' :
+                                  group.activity === 'medium' ? 'bg-yellow-500 text-gray-900' :
+                                  'bg-gray-600 text-gray-300'
+                                }`}>
+                                  {group.activity}
+                                </span>
+                              </div>
                             </div>
-                            <p className="message-content">{message.content}</p>
+                            <p className="text-gray-500 text-xs mt-1">Last active: {group.lastActive}</p>
                           </div>
-                        ))}
-                      </div>
+                        ))
+                      ) : (
+                        <div className="text-center py-10">
+                          <p className="text-gray-400">No group data available</p>
+                          {veridaData?.data?.telegram?.groups === 0 && (
+                            <p className="text-gray-500 text-sm mt-2">Sync your Telegram data with Verida first</p>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                  
+                  {/* Messages Tab Content */}
+                  {veridaDashboardTab === 'messages' && (
+                    <div className="space-y-2 max-h-80 overflow-y-auto pr-2">
+                      {veridaMessages.length > 0 ? (
+                        veridaMessages.map((message, index) => (
+                          <div key={message.id || index} className="bg-gray-900 rounded-lg p-3 hover:bg-gray-850 transition-colors">
+                            <div className="flex justify-between items-start mb-1">
+                              <div>
+                                <p className="text-white font-medium">{message.sender}</p>
+                                <p className="text-gray-400 text-xs">in {message.group}</p>
+                              </div>
+                              <span className="text-gray-500 text-xs">{message.time}</span>
+                            </div>
+                            <p className="text-gray-300 text-sm">{message.content}</p>
+                          </div>
+                        ))
+                      ) : (
+                        <div className="text-center py-10">
+                          <p className="text-gray-400">No message data available</p>
+                          {veridaData?.data?.telegram?.messages === 0 && (
+                            <p className="text-gray-500 text-sm mt-2">Sync your Telegram data with Verida first</p>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div className="flex flex-col items-center justify-center py-10">
+                  <p className="text-gray-400 mb-4">Connect to Verida to see your data</p>
+                  <button 
+                    onClick={connectWithVerida}
+                    className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg flex items-center"
+                    disabled={isVeridaConnecting}
+                  >
+                    {isVeridaConnecting ? (
+                      <>
+                        <span className="animate-spin h-4 w-4 mr-2 border-2 border-white border-t-transparent rounded-full"></span>
+                        Connecting...
+                      </>
+                    ) : (
+                      <>
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                        </svg>
+                        Connect with Verida
+                      </>
                     )}
-                  </div>
-                )}
-              </div>
-            )}
+                  </button>
+                  <p className="text-gray-500 text-xs mt-4 text-center max-w-xs">
+                    Connecting to Verida will calculate your Telegram engagement score
+                  </p>
+                </div>
+              )}
+              
+              {error && error.includes('Verida') && (
+                <div className="mt-4 bg-red-900 bg-opacity-50 text-red-200 p-3 rounded text-sm">
+                  {error}
+                </div>
+              )}
+            </div>
+            {/* End of Verida Panel */}
           </div>
           
           {/* Right Bottom: Empty Cell */}
